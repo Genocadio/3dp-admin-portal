@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import crypto from "crypto"
 import { emailTemplates } from "@/lib/email-templates"
 import { resetCodes } from "../reset-codes-storage"
+import { Resend } from "resend"
 
 /**
  * Helper: Send email
@@ -24,38 +25,24 @@ async function sendEmail(to: string, subject: string, html: string, text: string
       console.log("=".repeat(60) + "\n")
     }
 
-    // Production: Use Resend or other email service
+    // Send email with Resend
     if (process.env.RESEND_API_KEY) {
       try {
-        // Try to send with Resend - if not installed, just log
-        try {
-          // @ts-ignore - resend might not be installed
-          // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
-          const { Resend } = require('resend')
-          const resend = new Resend(process.env.RESEND_API_KEY)
-          await resend.emails.send({
-            from: process.env.EMAIL_FROM || 'noreply@3dp.local',
-            to,
-            subject,
-            html
-          })
-          console.log(`✅ Email sent successfully to ${to}`)
-        } catch (importError: unknown) {
-          const errorMsg = String(importError)
-          if (errorMsg.includes('Cannot find module')) {
-            console.warn("⚠️ Resend not installed. Install with: npm install resend")
-            console.warn("📧 Email would be sent to:", to)
-          } else {
-            throw importError
-          }
-        }
+        const resend = new Resend(process.env.RESEND_API_KEY)
+        await resend.emails.send({
+          from: process.env.EMAIL_FROM || 'onboarding@resend.dev',
+          to,
+          subject,
+          html
+        })
+        console.log(`✅ Email sent successfully to ${to}`)
       } catch (resendError: unknown) {
         console.error("❌ Resend error:", resendError instanceof Error ? resendError.message : String(resendError))
         console.log("⚠️ Email service failed but reset code stored")
       }
     } else {
       // Development mode - just log (no email service)
-      console.log(`✅ [DEV MODE] Email logged to console (not sent): ${to}`)
+      console.log(`✅ [DEV MODE] No RESEND_API_KEY - Email logged to console (not sent): ${to}`)
     }
 
     return true
