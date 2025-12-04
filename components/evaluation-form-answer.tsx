@@ -274,8 +274,8 @@ export function EvaluationFormAnswer({ evaluationForm, onBack }: EvaluationFormA
       })
 
       // Show success message with evaluation status
-      if (result.data?.createAnswer) {
-        const createdAnswer = result.data.createAnswer
+      if (result.data && 'createAnswer' in result.data && result.data.createAnswer) {
+        const createdAnswer = result.data.createAnswer as any
         const status = createdAnswer.status
         
         if (status === AnswerStatusEnum.AUTO) {

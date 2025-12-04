@@ -3,7 +3,15 @@
 import { useState, useEffect } from "react"
 import { useMutation } from "@apollo/client/react"
 import { CREATE_EVALUATION_FORM_MUTATION, UPDATE_EVALUATION_FORM_MUTATION, EVALUATION_FORMS_QUERY } from "@/lib/graphql/evaluations"
-import type { CreateEvaluationFormInput, UpdateEvaluationFormInput, CreateSectionInput, CreateQuestionInput, CreateQuestionOptionInput, CreateQuestionDependencyInput, CreateQuestionMediaInput, EvaluationForm } from "@/lib/graphql/types"
+import type { CreateEvaluationFormInput, UpdateEvaluationFormInput, CreateSectionInput, CreateQuestionInput, CreateQuestionOptionInput, CreateQuestionDependencyInput, CreateQuestionDependencyInputForm, CreateQuestionMediaInput, EvaluationForm } from "@/lib/graphql/types"
+
+// Form state type that allows nulls for dependencies
+type FormQuestionInput = Omit<CreateQuestionInput, 'dependencies'> & {
+  dependencies: CreateQuestionDependencyInputForm[]
+}
+type FormSectionInput = Omit<CreateSectionInput, 'questions'> & {
+  questions: FormQuestionInput[]
+}
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -41,7 +49,7 @@ export function EvaluationFormBuilder({ onBack, onSuccess, evaluationForm }: Eva
 
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
-  const [sections, setSections] = useState<CreateSectionInput[]>([])
+  const [sections, setSections] = useState<FormSectionInput[]>([])
   const [formId, setFormId] = useState<string | null>(evaluationForm?.id || null)
   const [autoSaving, setAutoSaving] = useState(false)
   const [lastSaved, setLastSaved] = useState<Date | null>(null)
@@ -50,7 +58,7 @@ export function EvaluationFormBuilder({ onBack, onSuccess, evaluationForm }: Eva
   const [lastSavedState, setLastSavedState] = useState<{
     title: string
     description: string
-    sections: CreateSectionInput[]
+    sections: FormSectionInput[]
   } | null>(null)
 
   // Initialize form data when in edit mode
@@ -62,8 +70,8 @@ export function EvaluationFormBuilder({ onBack, onSuccess, evaluationForm }: Eva
       setTitle(initialTitle)
       setDescription(initialDescription)
       
-      // Convert EvaluationForm sections to CreateSectionInput format
-      const convertedSections: CreateSectionInput[] = (evaluationForm.sections || []).map((section) => ({
+      // Convert EvaluationForm sections to FormSectionInput format
+      const convertedSections: FormSectionInput[] = (evaluationForm.sections || []).map((section) => ({
         id: section.id,
         title: section.title || null,
         description: section.description || null,
@@ -76,7 +84,7 @@ export function EvaluationFormBuilder({ onBack, onSuccess, evaluationForm }: Eva
           instructions: question.instructions || null,
           maxScore: question.maxScore || null,
           fileType: question.fileType || null,
-          order: question.order || null,
+          order: (question as any).order || null,
           options: (question.options || []).map((opt) => ({
             id: opt.id,
             text: opt.text || null,
@@ -96,7 +104,7 @@ export function EvaluationFormBuilder({ onBack, onSuccess, evaluationForm }: Eva
         })),
       }))
       
-      const finalSections = convertedSections.length > 0 ? convertedSections : [
+      const finalSections: FormSectionInput[] = convertedSections.length > 0 ? convertedSections : [
         {
           id: null,
           title: null,
@@ -156,7 +164,7 @@ export function EvaluationFormBuilder({ onBack, onSuccess, evaluationForm }: Eva
   }, [evaluationForm])
 
   // Check if a question is complete
-  const isQuestionComplete = (question: CreateQuestionInput): boolean => {
+  const isQuestionComplete = (question: FormQuestionInput): boolean => {
     if (!question.text?.trim()) return false
     if (!question.type) return false
     if (question.maxScore === null || question.maxScore === undefined) return false
@@ -175,15 +183,42 @@ export function EvaluationFormBuilder({ onBack, onSuccess, evaluationForm }: Eva
   }
 
   // Check if a section is complete
-  const isSectionComplete = (section: CreateSectionInput): boolean => {
+  const isSectionComplete = (section: FormSectionInput): boolean => {
     if (!section.title?.trim()) return false
     if (!section.questions || section.questions.length === 0) return false
     // All questions in section must be complete
     return section.questions.every(q => isQuestionComplete(q))
   }
 
+  // Helper function to convert form sections to mutation input
+  const convertSectionsToInput = (formSections: FormSectionInput[]): CreateSectionInput[] => {
+    return formSections.map(section => ({
+      ...section,
+      questions: section.questions.map(q => ({
+        ...q,
+        dependencies: q.dependencies
+          .filter(dep => dep.dependsOnQuestionId && dep.type)
+          .map(dep => {
+            let valueArray: string[] = []
+            if (dep.value) {
+              if (Array.isArray(dep.value)) {
+                valueArray = dep.value.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+              } else if (typeof dep.value === "string") {
+                valueArray = dep.value.split(",").map(v => v.trim()).filter(v => v.length > 0)
+              }
+            }
+            return {
+              dependsOnQuestionId: dep.dependsOnQuestionId!,
+              type: dep.type!,
+              value: valueArray,
+            }
+          }),
+      })),
+    }))
+  }
+
   // Helper function to process dependencies - filters out dependencies that reference questions without IDs
-  const processDependencies = (question: CreateQuestionInput, questionHasId: boolean = false, isNewForm: boolean = false): Array<{ dependsOnQuestionId: string; type: string; value: string[] }> => {
+  const processDependencies = (question: FormQuestionInput, questionHasId: boolean = false, isNewForm: boolean = false): Array<{ dependsOnQuestionId: string; type: string; value: string[] }> => {
     // When creating a new form, skip all dependencies since all questions are new and don't have IDs yet
     if (isNewForm) {
       return []
@@ -302,7 +337,7 @@ export function EvaluationFormBuilder({ onBack, onSuccess, evaluationForm }: Eva
   }
 
   // Helper to normalize sections for comparison (remove empty dependencies/media)
-  const normalizeSections = (sections: CreateSectionInput[]): any => {
+  const normalizeSections = (sections: CreateSectionInput[] | FormSectionInput[]): any => {
     return sections.map((section) => ({
       id: section.id,
       title: section.title,
@@ -341,8 +376,8 @@ export function EvaluationFormBuilder({ onBack, onSuccess, evaluationForm }: Eva
     if ((description || "").trim() !== (lastSavedState.description || "").trim()) return true
     
     // Deep compare sections
-    const currentNormalized = normalizeSections(sections)
-    const savedNormalized = normalizeSections(lastSavedState.sections)
+    const currentNormalized = normalizeSections(convertSectionsToInput(sections))
+    const savedNormalized = normalizeSections(convertSectionsToInput(lastSavedState.sections))
     
     return JSON.stringify(currentNormalized) !== JSON.stringify(savedNormalized)
   }
@@ -399,8 +434,10 @@ export function EvaluationFormBuilder({ onBack, onSuccess, evaluationForm }: Eva
           variables: { input },
         })
         
-        if (result.data?.createEvaluationForm?.id) {
-          setFormId(result.data.createEvaluationForm.id)
+        if (result.data && 'createEvaluationForm' in result.data) {
+          const createdForm = (result.data as any).createEvaluationForm
+          if (createdForm?.id) {
+            setFormId(createdForm.id)
           setLastSaved(new Date())
           // Update saved state
           setLastSavedState({
@@ -408,6 +445,7 @@ export function EvaluationFormBuilder({ onBack, onSuccess, evaluationForm }: Eva
             description: description?.trim() || "",
             sections: JSON.parse(JSON.stringify(sections)), // Deep clone
           })
+          }
         }
       } catch (err) {
         console.error("Auto-save failed:", err)
@@ -549,25 +587,7 @@ export function EvaluationFormBuilder({ onBack, onSuccess, evaluationForm }: Eva
             isCorrect: opt.isCorrect || false,
             order: optIndex,
           })),
-          dependencies: (question.dependencies || [])
-            .filter((dep) => dep.dependsOnQuestionId && dep.type)
-            .map((dep) => {
-              // Handle dependency value - it should be an array of strings per schema
-              let valueArray: string[] = []
-              if (dep.value) {
-                if (Array.isArray(dep.value)) {
-                  valueArray = dep.value.filter((v) => v && typeof v === "string" && v.trim())
-                } else if (typeof dep.value === "string") {
-                  // Split comma-separated values and filter empty strings
-                  valueArray = dep.value.split(",").map((v: string) => v.trim()).filter((v) => v.length > 0)
-                }
-              }
-              return {
-                dependsOnQuestionId: dep.dependsOnQuestionId || "",
-                type: dep.type as any,
-                value: valueArray,
-              }
-            }),
+          dependencies: processDependencies(question, !!question.id, !formId && !isEditMode),
           media: (question.media || [])
             .filter((m) => m.url?.trim())
             .map((m, mIndex) => ({
@@ -627,8 +647,11 @@ export function EvaluationFormBuilder({ onBack, onSuccess, evaluationForm }: Eva
           variables: { input },
         })
         
-        if (result.data?.createEvaluationForm?.id) {
-          setFormId(result.data.createEvaluationForm.id)
+        if (result.data && 'createEvaluationForm' in result.data) {
+          const createdForm = (result.data as any).createEvaluationForm
+          if (createdForm?.id) {
+            setFormId(createdForm.id)
+          }
         }
       }
       onSuccess()
@@ -732,14 +755,17 @@ export function EvaluationFormBuilder({ onBack, onSuccess, evaluationForm }: Eva
                 variables: { input },
               })
               
-              if (result.data?.createEvaluationForm?.id) {
-                setFormId(result.data.createEvaluationForm.id)
-                setLastSaved(new Date())
-                setLastSavedState({
-                  title: title.trim(),
-                  description: description?.trim() || "",
-                  sections: JSON.parse(JSON.stringify(sections)),
-                })
+              if (result.data && 'createEvaluationForm' in result.data) {
+                const createdForm = (result.data as any).createEvaluationForm
+                if (createdForm?.id) {
+                  setFormId(createdForm.id)
+                  setLastSaved(new Date())
+                  setLastSavedState({
+                    title: title.trim(),
+                    description: description?.trim() || "",
+                    sections: JSON.parse(JSON.stringify(sections)),
+                  })
+                }
               }
             } catch (err) {
               console.error("Auto-save failed:", err)
@@ -1519,7 +1545,7 @@ export function EvaluationFormBuilder({ onBack, onSuccess, evaluationForm }: Eva
         {error && (
           <Card className="border-destructive">
             <CardContent className="pt-6">
-              <p className="text-sm text-destructive">Error: {error.message}</p>
+              <p className="text-sm text-destructive">Error: {error?.message || String(error)}</p>
             </CardContent>
           </Card>
         )}

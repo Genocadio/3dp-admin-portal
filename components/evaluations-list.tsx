@@ -132,17 +132,20 @@ export function EvaluationsList({ onCreateNew, onEdit, onEvaluate }: Evaluations
         variables: { deleteEvaluationFormId: formToDelete.id },
       })
       
-      if (result.data?.deleteEvaluationForm?.success) {
-        const deletedAnswerIds = result.data.deleteEvaluationForm.answerIds || []
-        const message = result.data.deleteEvaluationForm.message || "Evaluation form deleted successfully"
-        
-        if (deletedAnswerIds.length > 0) {
-          alert(`${message}\n\nDeleted ${deletedAnswerIds.length} associated answer(s).`)
+      if (result.data && 'deleteEvaluationForm' in result.data) {
+        const deleteResult = (result.data as any).deleteEvaluationForm
+        if (deleteResult?.success) {
+          const deletedAnswerIds = deleteResult.answerIds || []
+          const message = deleteResult.message || "Evaluation form deleted successfully"
+          
+          if (deletedAnswerIds.length > 0) {
+            alert(`${message}\n\nDeleted ${deletedAnswerIds.length} associated answer(s).`)
+          } else {
+            alert(message)
+          }
         } else {
-          alert(message)
+          alert(deleteResult?.message || "Failed to delete evaluation form")
         }
-      } else {
-        alert(result.data?.deleteEvaluationForm?.message || "Failed to delete evaluation form")
       }
       
       setDeleteDialogOpen(false)
