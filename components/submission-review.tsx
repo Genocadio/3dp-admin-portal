@@ -9,7 +9,6 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { ArrowLeft, Download, FileText } from "lucide-react"
-import { createClient } from "@/lib/supabase/client"
 
 type SubmissionReviewProps = {
   submissionId: string
@@ -18,7 +17,6 @@ type SubmissionReviewProps = {
 }
 
 export function SubmissionReview({ submissionId, adminId, onBack }: SubmissionReviewProps) {
-  const supabase = createClient()
   const [submission, setSubmission] = useState<any>(null)
   const [answers, setAnswers] = useState<any[]>([])
   const [media, setMedia] = useState<any[]>([])
@@ -31,128 +29,101 @@ export function SubmissionReview({ submissionId, adminId, onBack }: SubmissionRe
   }, [submissionId])
 
   const loadSubmissionDetails = async () => {
-    // Load submission
-    const { data: submissionData } = await supabase
-      .from("submissions")
-      .select(`
-        *,
-        application:applications(title),
-        user:profiles!submissions_user_id_fkey(full_name, email, organisation_name)
-      `)
-      .eq("id", submissionId)
-      .single()
-
-    if (submissionData) {
-      setSubmission(submissionData)
-      setStatus(submissionData.status)
-      setNotes(submissionData.review_notes || "")
+    // Using dummy data instead of Supabase
+    const dummySubmission = {
+      id: submissionId,
+      status: "pending",
+      total_score: 45,
+      max_score: 100,
+      submitted_at: new Date().toISOString(),
+      reviewed_at: null,
+      review_notes: null,
+      application: { title: "Sample Application" },
+      user: { full_name: "John Doe", email: "john@example.com", organisation_name: "Example Corp" },
     }
 
-    // Load answers with questions
-    const { data: answersData } = await supabase
-      .from("submission_answers")
-      .select(`
-        *,
-        question:questions(*)
-      `)
-      .eq("submission_id", submissionId)
-      .order("created_at", { ascending: true })
+    setSubmission(dummySubmission)
+    setStatus(dummySubmission.status)
+    setNotes(dummySubmission.review_notes || "")
 
-    if (answersData) {
-      setAnswers(answersData)
-    }
+    // Dummy answers
+    const dummyAnswers = [
+      {
+        id: "1",
+        answer_text: "This is a sample answer to question 1",
+        answer_value: null,
+        points_earned: 10,
+        question: {
+          id: "q1",
+          question_text: "What is your experience with this technology?",
+          points: 20,
+          question_type: "text",
+        },
+      },
+      {
+        id: "2",
+        answer_text: "Option A selected",
+        answer_value: "option_a",
+        points_earned: 15,
+        question: {
+          id: "q2",
+          question_text: "Which option best describes your situation?",
+          points: 30,
+          question_type: "multiple_choice",
+        },
+      },
+      {
+        id: "3",
+        answer_text: null,
+        answer_value: null,
+        points_earned: 20,
+        question: {
+          id: "q3",
+          question_text: "Upload your portfolio document",
+          points: 50,
+          question_type: "media_only",
+        },
+      },
+    ]
+    setAnswers(dummyAnswers)
 
-    // Load media
-    const { data: mediaData } = await supabase
-      .from("submission_media")
-      .select(`
-        *,
-        question:questions(question_text)
-      `)
-      .eq("submission_id", submissionId)
-
-    if (mediaData) {
-      setMedia(mediaData)
-    }
+    // Dummy media
+    const dummyMedia = [
+      {
+        id: "1",
+        file_name: "portfolio.pdf",
+        file_url: "https://example.com/files/portfolio.pdf",
+        file_size: 1024000,
+        question: { question_text: "Upload your portfolio document" },
+      },
+    ]
+    setMedia(dummyMedia)
   }
 
   const handleSaveReview = async () => {
     setIsSaving(true)
 
     try {
-      // If approving, grant full marks to media upload questions
-      if (status === "approved") {
-        // Get all answers that need points granted (media_only or media uploads)
-        const answersToUpdate = answers.filter(
-          (answer) =>
-            answer.question?.question_type === "media_only" ||
-            (answer.question?.media_upload_config?.required && !answer.points_earned),
-        )
-
-        // Update points for media upload questions
-        for (const answer of answersToUpdate) {
-          const maxPoints = answer.question?.points || 0
-          if (maxPoints > 0) {
-            await supabase
-              .from("submission_answers")
-              .update({
-                points_earned: maxPoints,
-              })
-              .eq("id", answer.id)
-          }
-        }
-
-        // Recalculate total score with media uploads granted
-        let newTotalScore = 0
-        let newMaxScore = 0
-
-        answers.forEach((answer) => {
-          newMaxScore += answer.question?.points || 0
-          if (answer.question?.question_type === "media_only" || answer.question?.media_upload_config?.required) {
-            // Grant full marks to media questions
-            newTotalScore += answer.question?.points || 0
-          } else {
-            // Keep auto-scored marks
-            newTotalScore += answer.points_earned || 0
-          }
+      // Using dummy data instead of Supabase
+      // In a real implementation, this would call a GraphQL mutation
+      console.log("Saving review:", { submissionId, status, notes, adminId })
+      
+      // Simulate API call
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      
+      // Update local state
+      if (submission) {
+        setSubmission({
+          ...submission,
+          status,
+          review_notes: notes,
+          reviewed_by: adminId,
+          reviewed_at: new Date().toISOString(),
         })
-
-        // Update submission with new score
-        const { error } = await supabase
-          .from("submissions")
-          .update({
-            status,
-            review_notes: notes,
-            reviewed_by: adminId,
-            reviewed_at: new Date().toISOString(),
-            total_score: newTotalScore,
-            max_score: newMaxScore,
-          })
-          .eq("id", submissionId)
-
-        if (!error) {
-          onBack()
-        } else {
-          alert("Failed to save review")
-        }
-      } else {
-        // For reject or other statuses, just update without granting points
-        const { error } = await supabase
-          .from("submissions")
-          .update({
-            status,
-            review_notes: notes,
-            reviewed_by: adminId,
-            reviewed_at: new Date().toISOString(),
-          })
-          .eq("id", submissionId)
-
-        if (!error) {
-          onBack()
-        } else {
-          alert("Failed to save review")
-        }
       }
+      
+      alert("Review saved successfully (dummy data - GraphQL mutation needed)")
+      onBack()
     } catch (error) {
       console.error("Error saving review:", error)
       alert("Failed to save review")

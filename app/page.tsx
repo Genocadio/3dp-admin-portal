@@ -5,7 +5,10 @@ import { useState } from "react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { createClient } from "@/lib/supabase/client"
+import { useMutation } from "@apollo/client/react"
+import { LOGIN_MUTATION, REGISTER_MUTATION } from "@/lib/graphql/mutations"
+import { saveToken, saveUserData } from "@/lib/auth/token"
+import { UserRole } from "@/lib/graphql/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -15,7 +18,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 export default function HomePage() {
   const router = useRouter()
-  const supabase = createClient()
+  const [loginMutation] = useMutation(LOGIN_MUTATION)
+  const [registerMutation] = useMutation(REGISTER_MUTATION)
 
   // Login states
   const [loginEmail, setLoginEmail] = useState("")
@@ -39,22 +43,51 @@ export default function HomePage() {
     setLoginError(null)
 
     try {
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: loginEmail,
-        password: loginPassword,
+      const result = await loginMutation({
+        variables: {
+          input: {
+            email: loginEmail,
+            password: loginPassword,
+          },
+        },
       })
 
-      if (signInError) throw signInError
+      const error = result.error
+      const errors = (result as any).errors
+      const data = result.data as { login?: { token: string; user: any } } | null
 
-      // Get user profile to check role
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", (await supabase.auth.getUser()).data.user?.id)
-        .single()
+      if (error || errors || !data?.login) {
+        throw new Error(error?.message || errors?.[0]?.message || "Login failed")
+      }
 
-      // Redirect based on role
-      if (profile?.role === "admin") {
+      const { token, user } = data.login
+
+      // Save token to localStorage
+      saveToken(token)
+      
+      // Also set token in cookie for server-side middleware
+      document.cookie = `auth_token=${token}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`
+
+      // Save user data (including role) to localStorage and cookie
+      saveUserData({
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        organizationName: user.organizationName,
+        phone: user.phone,
+        roleInOrganization: user.roleInOrganization,
+        isActive: user.isActive,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      })
+
+      // Redirect based on role - check for "ADMIN" (uppercase)
+      // The role comes from GraphQL as "ADMIN" or "user"
+      // Normalize to uppercase for comparison
+      const roleValue = String(user.role || "").toUpperCase()
+      
+      if (roleValue === "ADMIN") {
         router.push("/admin")
       } else {
         router.push("/dashboard")
@@ -84,21 +117,50 @@ export default function HomePage() {
     }
 
     try {
-      const { error: signUpError } = await supabase.auth.signUp({
-        email: signupEmail,
-        password: signupPassword,
-        options: {
-          emailRedirectTo: process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL || `${window.location.origin}/dashboard`,
-          data: {
-            full_name: fullName,
-            role: "user",
-            organisation_name: organisationName,
-            user_role: userRole,
+      const result = await registerMutation({
+        variables: {
+          input: {
+            email: signupEmail,
+            name: fullName,
+            password: signupPassword,
+            organizationName: organisationName,
+            roleInOrganization: userRole,
+            role: "user", // Default role for new users
           },
         },
       })
 
-      if (signUpError) throw signUpError
+      const error = result.error
+      const errors = (result as any).errors
+      const data = result.data as { register?: { token: string; user: any } } | null
+
+      if (error || errors || !data?.register) {
+        throw new Error(error?.message || errors?.[0]?.message || "Registration failed")
+      }
+
+      const { token, user } = data.register
+
+      // Save token to localStorage
+      saveToken(token)
+      
+      // Also set token in cookie for server-side middleware
+      document.cookie = `auth_token=${token}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`
+
+      // Save user data (including role) to localStorage and cookie
+      saveUserData({
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        organizationName: user.organizationName,
+        phone: user.phone,
+        roleInOrganization: user.roleInOrganization,
+        isActive: user.isActive,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      })
+
+      // Redirect to success page
       router.push("/auth/sign-up-success")
     } catch (error: unknown) {
       setSignupError(error instanceof Error ? error.message : "An error occurred")

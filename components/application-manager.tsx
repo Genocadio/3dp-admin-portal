@@ -15,7 +15,6 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Plus, FolderOpen, Settings, Trash2 } from "lucide-react"
-import { createClient } from "@/lib/supabase/client"
 import type { Application } from "@/lib/types"
 import { CategoryQuestionManager } from "@/components/category-question-manager"
 
@@ -24,7 +23,6 @@ type ApplicationManagerProps = {
 }
 
 export function ApplicationManager({ userId }: ApplicationManagerProps) {
-  const supabase = createClient()
   const [applications, setApplications] = useState<Application[]>([])
   const [selectedApp, setSelectedApp] = useState<Application | null>(null)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
@@ -35,49 +33,68 @@ export function ApplicationManager({ userId }: ApplicationManagerProps) {
   }, [])
 
   const loadApplications = async () => {
-    const { data } = await supabase.from("applications").select("*").order("created_at", { ascending: false })
-
-    if (data) {
-      setApplications(data)
-    }
+    // Using dummy data instead of Supabase
+    const dummyApplications: Application[] = [
+      {
+        id: "1",
+        title: "Sample Application 1",
+        description: "This is a sample application for testing",
+        is_active: true,
+        created_by: userId,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      {
+        id: "2",
+        title: "Sample Application 2",
+        description: "Another sample application",
+        is_active: false,
+        created_by: userId,
+        created_at: new Date(Date.now() - 86400000).toISOString(),
+        updated_at: new Date(Date.now() - 86400000).toISOString(),
+      },
+    ]
+    setApplications(dummyApplications)
   }
 
   const handleCreateApplication = async () => {
     if (!newApp.title) return
 
-    const { error } = await supabase.from("applications").insert({
+    // Using dummy data instead of Supabase
+    // In a real implementation, this would call a GraphQL mutation
+    const newApplication: Application = {
+      id: Date.now().toString(),
       title: newApp.title,
       description: newApp.description,
       created_by: userId,
       is_active: true,
-    })
-
-    if (!error) {
-      setNewApp({ title: "", description: "" })
-      setIsCreateOpen(false)
-      loadApplications()
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     }
+
+    setApplications([newApplication, ...applications])
+    setNewApp({ title: "", description: "" })
+    setIsCreateOpen(false)
+    console.log("Application created (dummy data - GraphQL mutation needed):", newApplication)
   }
 
   const handleDeleteApplication = async (id: string) => {
     if (!confirm("Are you sure? This will delete all categories, questions, and submissions.")) return
 
-    const { error } = await supabase.from("applications").delete().eq("id", id)
-
-    if (!error) {
-      loadApplications()
-      if (selectedApp?.id === id) {
-        setSelectedApp(null)
-      }
+    // Using dummy data instead of Supabase
+    setApplications(applications.filter((app) => app.id !== id))
+    if (selectedApp?.id === id) {
+      setSelectedApp(null)
     }
+    console.log("Application deleted (dummy data - GraphQL mutation needed):", id)
   }
 
   const handleToggleActive = async (app: Application) => {
-    const { error } = await supabase.from("applications").update({ is_active: !app.is_active }).eq("id", app.id)
-
-    if (!error) {
-      loadApplications()
-    }
+    // Using dummy data instead of Supabase
+    setApplications(
+      applications.map((a) => (a.id === app.id ? { ...a, is_active: !a.is_active, updated_at: new Date().toISOString() } : a)),
+    )
+    console.log("Application toggled (dummy data - GraphQL mutation needed):", app.id, !app.is_active)
   }
 
   if (selectedApp) {

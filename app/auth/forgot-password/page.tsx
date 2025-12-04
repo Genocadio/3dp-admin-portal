@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useMutation } from "@apollo/client/react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -8,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { REQUEST_PASSWORD_RESET_MUTATION, RESET_PASSWORD_MUTATION } from "@/lib/graphql/mutations"
 
 export default function ForgotPasswordPage() {
   const [step, setStep] = useState<"email" | "code" | "success">("email")
@@ -15,86 +17,65 @@ export default function ForgotPasswordPage() {
   const [code, setCode] = useState("")
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
-  const [testCode, setTestCode] = useState<string | null>(null)
   const router = useRouter()
+  
+  const [requestPasswordReset, { loading: requestingCode }] = useMutation(REQUEST_PASSWORD_RESET_MUTATION)
+  const [resetPassword, { loading: resettingPassword }] = useMutation(RESET_PASSWORD_MUTATION)
+  
+  const isLoading = requestingCode || resettingPassword
 
   const handleSendCode = async (e: React.FormEvent) => {
     e.preventDefault()
-    setIsLoading(true)
     setError(null)
-    setTestCode(null)
+    setMessage(null)
 
     try {
-      const response = await fetch("/api/auth/password/send-reset-code", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+      await requestPasswordReset({
+        variables: {
+          input: {
+            email,
+          },
+        },
       })
 
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to send code")
-      }
-
       setMessage("Reset code sent to your email. It will expire in 15 minutes.")
-      
-      // Show test code in development mode
-      if (data.testCode) {
-        setTestCode(data.testCode)
-        console.log("🧪 DEV MODE: Test code:", data.testCode)
-      }
-      
       setStep("code")
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to send reset code")
-    } finally {
-      setIsLoading(false)
+    } catch (err: any) {
+      setError(err?.message || "Failed to send reset code")
     }
   }
 
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault()
-    setIsLoading(true)
     setError(null)
 
     if (newPassword !== confirmPassword) {
       setError("Passwords do not match")
-      setIsLoading(false)
       return
     }
 
     if (newPassword.length < 8) {
       setError("Password must be at least 8 characters")
-      setIsLoading(false)
       return
     }
 
     try {
-      const response = await fetch("/api/auth/password/verify-reset", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email,
-          code,
-          newPassword,
-        }),
+      await resetPassword({
+        variables: {
+          input: {
+            email,
+            code,
+            newPassword,
+          },
+        },
       })
-
-      if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.error || "Failed to reset password")
-      }
 
       setStep("success")
       setMessage("Password has been reset successfully")
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to reset password")
-    } finally {
-      setIsLoading(false)
+    } catch (err: any) {
+      setError(err?.message || "Failed to reset password")
     }
   }
 
@@ -136,15 +117,6 @@ export default function ForgotPasswordPage() {
                   </div>
                 )}
 
-                {testCode && (
-                  <div className="rounded-lg bg-blue-50 p-4 border border-blue-200">
-                    <p className="text-xs font-semibold text-blue-900 mb-2">🧪 Development Mode - Test Code:</p>
-                    <div className="bg-white p-3 rounded border border-blue-200 font-mono text-center text-lg font-bold text-blue-600 tracking-wider">
-                      {testCode}
-                    </div>
-                    <p className="text-xs text-blue-800 mt-2">Check server console for email content</p>
-                  </div>
-                )}
 
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading ? (
@@ -175,13 +147,6 @@ export default function ForgotPasswordPage() {
             </CardHeader>
             <CardContent>
               <form onSubmit={handleResetPassword} className="space-y-4">
-                {process.env.NODE_ENV === "development" && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                    <p className="text-xs text-blue-900">
-                      <strong>💡 Tip:</strong> In development mode, check the server console for the test code or browser console (F12) for the code that was displayed.
-                    </p>
-                  </div>
-                )}
 
                 <div className="grid gap-2">
                   <Label htmlFor="code">Reset Code</Label>

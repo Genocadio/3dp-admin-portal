@@ -10,7 +10,6 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Progress } from "@/components/ui/progress"
 import { ArrowLeft, ArrowRight, CheckCircle2 } from "lucide-react"
 import Image from "next/image"
-import { createClient } from "@/lib/supabase/client"
 import type { Application, Category, Question, QuestionOption } from "@/lib/types"
 import { QuickEvaluationReport } from "./quick-evaluation-report"
 
@@ -21,7 +20,6 @@ type ApplicationSubmissionProps = {
 }
 
 export function ApplicationSubmission({ application, userId, onBack }: ApplicationSubmissionProps) {
-  const supabase = createClient()
   const [categories, setCategories] = useState<Category[]>([])
   const [questions, setQuestions] = useState<Question[]>([])
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
@@ -42,45 +40,44 @@ export function ApplicationSubmission({ application, userId, onBack }: Applicati
   }, [application.id])
 
   const loadUserName = async () => {
-    const { data } = await supabase
-      .from("profiles")
-      .select("full_name, organisation_name")
-      .eq("id", userId)
-      .single()
-
-    if (data?.full_name) {
-      setUserName(data.full_name)
-    }
-    if (data?.organisation_name) {
-      setUserOrganisation(data.organisation_name)
-    }
+    // Using dummy data instead of Supabase
+    setUserName("User Name")
+    setUserOrganisation("User Organisation")
   }
 
   const loadQuestionsWithCategories = async () => {
-    // Load categories
-    const { data: cats } = await supabase
-      .from("categories")
-      .select("*")
-      .eq("application_id", application.id)
-      .order("order_index", { ascending: true })
+    // Using dummy data instead of Supabase
+    const dummyCategories: Category[] = [
+      {
+        id: "1",
+        application_id: application.id,
+        title: "Basic Information",
+        description: "Please provide your basic information",
+        order_index: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ]
+    setCategories(dummyCategories)
 
-    if (!cats) return
-
-    setCategories(cats)
-
-    // Load all questions for this application
-    const { data: allQuestions } = await supabase
-      .from("questions")
-      .select("*")
-      .in(
-        "category_id",
-        cats.map((c) => c.id),
-      )
-      .order("order_index", { ascending: true })
-
-    if (allQuestions) {
-      setQuestions(allQuestions)
-    }
+    const dummyQuestions: Question[] = [
+      {
+        id: "1",
+        category_id: "1",
+        question_text: "What is your name?",
+        help_text: "Please enter your full name",
+        question_type: "text",
+        options: null,
+        points: 10,
+        media_upload_config: { required: false, allowedTypes: [], maxSize: 0 },
+        depends_on_question_id: null,
+        depends_on_answer: null,
+        order_index: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ]
+    setQuestions(dummyQuestions)
   }
 
   const visibleQuestions = questions.filter((q) => {
@@ -199,65 +196,19 @@ export function ApplicationSubmission({ application, userId, onBack }: Applicati
         })
       })
 
-      // Create submission
-      const { data: submission, error: submissionError } = await supabase
-        .from("submissions")
-        .insert({
-          application_id: application.id,
-          user_id: userId,
-          status: "pending",
-          total_score: totalScore,
-          max_score: maxScore,
-        })
-        .select()
-        .single()
-
-      if (submissionError) throw submissionError
-
-      // Save ALL answers (not just auto-scoreable ones) and upload files
-      for (const question of visibleQuestions) {
-        const answer = answers[question.id]
-        if (!answer) continue
-
-        // Calculate points for this answer
-        let pointsEarned = 0
-        if (question.options && answer.value && isAutoScorable(question)) {
-          const selectedOption = (question.options as QuestionOption[]).find((opt) => opt.value === answer.value)
-          pointsEarned = selectedOption?.points || 0
-        }
-
-        // Save answer
-        const { error: answerError } = await supabase.from("submission_answers").insert({
-          submission_id: submission.id,
-          question_id: question.id,
-          answer_text: answer.text || null,
-          answer_value: answer.value || null,
-          points_earned: pointsEarned,
-        })
-
-        if (answerError) throw answerError
-
-        // Upload files if any
-        if (answer.files && answer.files.length > 0) {
-          for (const file of answer.files) {
-            const fileName = `${submission.id}/${question.id}/${file.name}`
-            const { error: uploadError } = await supabase.storage.from("submissions").upload(fileName, file)
-
-            if (uploadError) throw uploadError
-
-            const { data: urlData } = supabase.storage.from("submissions").getPublicUrl(fileName)
-
-            await supabase.from("submission_media").insert({
-              submission_id: submission.id,
-              question_id: question.id,
-              file_name: file.name,
-              file_url: urlData.publicUrl,
-              file_type: file.type,
-              file_size: file.size,
-            })
-          }
-        }
+      // Using dummy data instead of Supabase
+      // In a real implementation, this would call a GraphQL mutation
+      const dummySubmission = {
+        id: `submission-${Date.now()}`,
+        application_id: application.id,
+        user_id: userId,
+        status: "pending",
+        total_score: totalScore,
+        max_score: maxScore,
       }
+
+      // Simulate saving answers (dummy data)
+      // In a real implementation, this would call GraphQL mutations
 
       // Set evaluation data to display the report
       setEvaluationData({

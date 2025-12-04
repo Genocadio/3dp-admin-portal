@@ -1,0 +1,339 @@
+# Indicates exactly one field must be supplied and this field must not be `null`.
+directive @oneOf on INPUT_OBJECT
+
+type Answer {
+  createdAt: DateTime!
+  evaluationForm: EvaluationForm
+  evaluationFormId: ID!
+  id: ID!
+  questionAnswers: [QuestionAnswer!]
+  review: Review
+  status: AnswerStatus!
+  updatedAt: DateTime!
+  userId: ID!
+}
+
+enum AnswerStatus {
+  EVALUATED
+  INPROGRESS
+  PENDING
+}
+
+input CreateAnswerInput {
+  evaluationFormId: String!
+  questionAnswers: [QuestionAnswerInput!]!
+}
+
+input CreateEvaluationFormInput {
+  description: String
+  sections: [SectionInput!]!
+  title: String!
+}
+
+type DashboardStats {
+  incompleteReviews: [Review!]!
+  totalEvaluationCount: Int!
+  totalReviewsCount: Int!
+  totalSubmissionsCount: Int!
+  unreviewedSubmissions: [Answer!]!
+}
+
+# A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
+scalar DateTime
+
+enum DependencyType {
+  ANSWERED
+  FILE_UPLOADED
+  OPTION_SELECTED
+}
+
+type EvaluationForm {
+  createdAt: DateTime!
+  createdById: ID!
+  description: String
+  id: ID!
+  sections: [Section!]
+  title: String!
+  updatedAt: DateTime!
+}
+
+enum FileType {
+  ALL
+  DOC
+  IMAGE
+  ZIP
+}
+
+input LoginInput {
+  email: String!
+  password: String!
+}
+
+type LoginResponse {
+  token: String!
+  user: UserResponse!
+}
+
+enum ManualReviewResult {
+  CORRECT
+  INCORRECT
+  INVALID
+  PARTIALLY_CORRECT
+  VALID
+}
+
+type Mutation {
+  activateUser(userId: String!): User!
+  createAnswer(input: CreateAnswerInput!): Answer!
+  createEvaluationForm(input: CreateEvaluationFormInput!): EvaluationForm!
+  deactivateUser(userId: String!): User!
+  deleteAnswer(id: ID!): Boolean!
+  deleteEvaluationForm(id: ID!): Boolean!
+  login(input: LoginInput!): LoginResponse!
+  register(input: RegisterInput!): RegisterResponse!
+  reviewAnswer(answerId: ID!, input: ReviewAnswerInput!): Review!
+  updateAnswer(id: ID!, input: UpdateAnswerInput!): Answer!
+  updateEvaluationForm(
+    id: ID!
+    input: UpdateEvaluationFormInput!
+  ): EvaluationForm!
+}
+
+type Query {
+  allAnswers: [Answer!]!
+  answer(id: ID!): Answer!
+  answerByEvaluationForm(evaluationFormId: ID!): Answer
+  answerReview(answerId: ID!): Review
+  dashboardStats: DashboardStats!
+  evaluationForm(id: ID!): EvaluationForm!
+  evaluationForms: [EvaluationForm!]!
+  me: User!
+  myAnswers: [Answer!]!
+  review(id: ID!): Review
+  user(id: String!): User!
+  users: [User!]!
+}
+
+type Question {
+  createdAt: DateTime!
+  dependencies: [QuestionDependency!]
+  description: String
+  fileType: FileType
+  id: ID!
+  instructions: String
+  maxScore: Float!
+  media: [QuestionMedia!]
+  options: [QuestionOption!]
+  order: Float!
+  sectionId: ID!
+  text: String!
+  type: QuestionType!
+  updatedAt: DateTime!
+}
+
+type QuestionAnswer {
+  answerId: ID!
+  createdAt: DateTime!
+  fileUploadUrl: String
+  id: ID!
+  questionId: ID!
+  selectedOptionId: String
+  selectedOptionIds: [String!]
+  textAnswer: String
+  updatedAt: DateTime!
+}
+
+input QuestionAnswerInput {
+  fileUploadUrl: String
+  questionId: String!
+  selectedOptionId: String
+  selectedOptionIds: [String!]
+  textAnswer: String
+}
+
+type QuestionDependency {
+  dependsOnQuestionId: ID!
+  id: ID!
+  questionId: ID!
+  type: DependencyType!
+  value: [String!]
+}
+
+input QuestionDependencyInput {
+  dependsOnQuestionId: String!
+  type: DependencyType!
+  value: [String!]
+}
+
+input QuestionInput {
+  dependencies: [QuestionDependencyInput!]
+  description: String
+  fileType: FileType
+  id: String
+  instructions: String
+  maxScore: Float!
+  media: [QuestionMediaInput!]
+  options: [QuestionOptionInput!]
+  order: Float
+  text: String!
+  type: QuestionType!
+}
+
+type QuestionMedia {
+  id: ID!
+  order: Float!
+  questionId: ID!
+  url: String!
+}
+
+input QuestionMediaInput {
+  order: Float
+  url: String
+}
+
+type QuestionOption {
+  id: ID!
+  isCorrect: Boolean
+  order: Float!
+  questionId: ID!
+  text: String!
+}
+
+input QuestionOptionInput {
+  id: String
+  isCorrect: Boolean
+  order: Float
+  text: String!
+}
+
+type QuestionReview {
+  createdAt: DateTime!
+  id: ID!
+  manualNotes: String
+  manualReviewResult: ManualReviewResult
+  maxScore: Float!
+  questionAnswerId: ID
+  questionId: ID!
+  reviewId: ID!
+  reviewType: ReviewType!
+  updatedAt: DateTime!
+  userScore: Float!
+}
+
+input QuestionReviewInput {
+  notes: String
+  questionReviewId: String!
+  result: ManualReviewResult!
+}
+
+enum QuestionType {
+  FILE_UPLOAD
+  MCQ_MULTIPLE
+  MCQ_SINGLE
+  PARAGRAPH
+  SINGLE_LINE
+}
+
+input RegisterInput {
+  email: String!
+  name: String!
+  organizationName: String
+  password: String!
+  phone: String
+  role: String
+  roleInOrganization: String
+}
+
+type RegisterResponse {
+  token: String!
+  user: UserResponse!
+}
+
+type Review {
+  answerId: ID!
+  createdAt: DateTime!
+  id: ID!
+  maxPossibleScore: Float!
+  notes: String
+  questionReviews: [QuestionReview!]
+  status: ReviewStatus!
+  totalScore: Float!
+  unansweredQuestionIds: [String!]
+  updatedAt: DateTime!
+}
+
+input ReviewAnswerInput {
+  notes: String
+  questionReviews: [QuestionReviewInput!]!
+}
+
+enum ReviewStatus {
+  AUTO
+  COMPLETE
+}
+
+enum ReviewType {
+  AUTO
+  MANUAL
+}
+
+type Section {
+  createdAt: DateTime!
+  description: String
+  evaluationFormId: ID!
+  id: ID!
+  order: Float!
+  questions: [Question!]
+  title: String!
+  updatedAt: DateTime!
+}
+
+input SectionInput {
+  description: String
+  id: String
+  order: Float
+  questions: [QuestionInput!]!
+  title: String!
+}
+
+input UpdateAnswerInput {
+  questionAnswers: [QuestionAnswerInput!]
+  status: AnswerStatus
+}
+
+input UpdateEvaluationFormInput {
+  description: String
+  sections: [SectionInput!]
+  title: String
+}
+
+type User {
+  createdAt: DateTime!
+  email: String!
+  id: ID!
+  isActive: Boolean!
+  name: String!
+  organizationName: String
+  phone: String
+  role: UserRole!
+  roleInOrganization: String
+  updatedAt: DateTime!
+}
+
+type UserResponse {
+  createdAt: DateTime!
+  email: String!
+  id: ID!
+  isActive: Boolean!
+  name: String!
+  organizationName: String
+  phone: String
+  role: UserRole!
+  roleInOrganization: String
+  updatedAt: DateTime!
+}
+
+enum UserRole {
+  ADMIN
+  USER
+}

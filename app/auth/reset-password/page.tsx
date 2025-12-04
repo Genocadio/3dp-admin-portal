@@ -2,6 +2,7 @@
 
 import { useState, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
+import { useMutation } from "@apollo/client/react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -9,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, Loader2, CheckCircle2, AlertCircle } from "lucide-react"
+import { RESET_PASSWORD_MUTATION } from "@/lib/graphql/mutations"
 
 function ResetPasswordForm() {
   const [code, setCode] = useState("")
@@ -16,11 +18,11 @@ function ResetPasswordForm() {
   const [confirmPassword, setConfirmPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
   const searchParams = useSearchParams()
   const router = useRouter()
   
   const email = searchParams.get("email") || ""
+  const [resetPassword, { loading: isLoading }] = useMutation(RESET_PASSWORD_MUTATION)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -47,26 +49,16 @@ function ResetPasswordForm() {
       return
     }
 
-    setIsLoading(true)
-
     try {
-      const response = await fetch("/api/auth/password/verify-reset", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+      await resetPassword({
+        variables: {
+          input: {
+            email,
+            code,
+            newPassword,
+          },
         },
-        body: JSON.stringify({
-          email,
-          code,
-          newPassword,
-        }),
       })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to reset password")
-      }
 
       setSuccess(true)
 
@@ -74,10 +66,8 @@ function ResetPasswordForm() {
       setTimeout(() => {
         router.push("/")
       }, 2000)
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "An error occurred")
-    } finally {
-      setIsLoading(false)
+    } catch (error: any) {
+      setError(error?.message || "Failed to reset password")
     }
   }
 

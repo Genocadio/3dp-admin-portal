@@ -6,7 +6,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { ArrowLeft, Download, FileText } from "lucide-react"
 import Image from "next/image"
-import { createClient } from "@/lib/supabase/client"
 import { downloadPDFReport, type SubmissionReportData } from "@/lib/pdf-generator"
 
 type SubmissionDetailViewProps = {
@@ -15,7 +14,6 @@ type SubmissionDetailViewProps = {
 }
 
 export function SubmissionDetailView({ submissionId, onBack }: SubmissionDetailViewProps) {
-  const supabase = createClient()
   const [submission, setSubmission] = useState<any>(null)
   const [answers, setAnswers] = useState<any[]>([])
   const [media, setMedia] = useState<any[]>([])
@@ -26,47 +24,47 @@ export function SubmissionDetailView({ submissionId, onBack }: SubmissionDetailV
   }, [submissionId])
 
   const loadSubmissionDetails = async () => {
-    const { data: submissionData } = await supabase
-      .from("submissions")
-      .select(`
-        *,
-        application:applications(title),
-        user:profiles(full_name, organisation_name)
-      `)
-      .eq("id", submissionId)
-      .single()
-
-    if (submissionData) {
-      setSubmission(submissionData)
-      if (submissionData.user?.organisation_name) {
-        setUserOrganisation(submissionData.user.organisation_name)
-      }
+    // Using dummy data instead of Supabase
+    const dummySubmission = {
+      id: submissionId,
+      application_id: "1",
+      user_id: "user-1",
+      status: "pending",
+      total_score: 75,
+      max_score: 100,
+      submitted_at: new Date().toISOString(),
+      reviewed_at: null,
+      reviewed_by: null,
+      review_notes: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      application: { title: "Application Form 2024" },
+      user: { full_name: "John Doe", organisation_name: "Example Organisation" },
     }
+    setSubmission(dummySubmission)
+    setUserOrganisation(dummySubmission.user.organisation_name)
 
-    const { data: answersData } = await supabase
-      .from("submission_answers")
-      .select(`
-        *,
-        question:questions(*)
-      `)
-      .eq("submission_id", submissionId)
-      .order("created_at", { ascending: true })
+    const dummyAnswers = [
+      {
+        id: "1",
+        submission_id: submissionId,
+        question_id: "1",
+        answer_text: "Sample answer",
+        answer_value: null,
+        points_earned: 10,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        question: {
+          id: "1",
+          question_text: "What is your name?",
+          question_type: "text",
+        },
+      },
+    ]
+    setAnswers(dummyAnswers)
 
-    if (answersData) {
-      setAnswers(answersData)
-    }
-
-    const { data: mediaData } = await supabase
-      .from("submission_media")
-      .select(`
-        *,
-        question:questions(question_text)
-      `)
-      .eq("submission_id", submissionId)
-
-    if (mediaData) {
-      setMedia(mediaData)
-    }
+    const dummyMedia: any[] = []
+    setMedia(dummyMedia)
   }
 
   if (!submission) {

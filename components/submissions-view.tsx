@@ -6,7 +6,6 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { AlertCircle, FileEdit } from "lucide-react"
-import { createClient } from "@/lib/supabase/client"
 import { SubmissionReview } from "@/components/submission-review"
 
 type SubmissionsViewProps = {
@@ -14,7 +13,6 @@ type SubmissionsViewProps = {
 }
 
 export function SubmissionsView({ adminId }: SubmissionsViewProps) {
-  const supabase = createClient()
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null)
   const [submissions, setSubmissions] = useState<any[]>([])
 
@@ -23,18 +21,43 @@ export function SubmissionsView({ adminId }: SubmissionsViewProps) {
   }, [])
 
   const loadSubmissions = async () => {
-    const { data } = await supabase
-      .from("submissions")
-      .select(`
-        *,
-        application:applications(title),
-        user:profiles!submissions_user_id_fkey(full_name, email)
-      `)
-      .order("created_at", { ascending: false })
-
-    if (data) {
-      setSubmissions(data)
-    }
+    // Using dummy data instead of Supabase
+    const dummySubmissions = [
+      {
+        id: "1",
+        status: "pending",
+        total_score: 45,
+        max_score: 100,
+        submitted_at: new Date().toISOString(),
+        reviewed_at: null,
+        review_notes: null,
+        application: { title: "Sample Application 1" },
+        user: { full_name: "John Doe", email: "john@example.com" },
+      },
+      {
+        id: "2",
+        status: "under_review",
+        total_score: 78,
+        max_score: 100,
+        submitted_at: new Date(Date.now() - 86400000).toISOString(),
+        reviewed_at: null,
+        review_notes: "Initial review in progress",
+        application: { title: "Sample Application 2" },
+        user: { full_name: "Jane Smith", email: "jane@example.com" },
+      },
+      {
+        id: "3",
+        status: "approved",
+        total_score: 95,
+        max_score: 100,
+        submitted_at: new Date(Date.now() - 172800000).toISOString(),
+        reviewed_at: new Date(Date.now() - 86400000).toISOString(),
+        review_notes: "Excellent submission, all requirements met",
+        application: { title: "Sample Application 3" },
+        user: { full_name: "Bob Johnson", email: "bob@example.com" },
+      },
+    ]
+    setSubmissions(dummySubmissions)
   }
 
   const getStatusColor = (status: string) => {

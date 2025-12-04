@@ -1,21 +1,46 @@
 import { redirect } from "next/navigation"
-import { createClient } from "@/lib/supabase/server"
+import { cookies } from "next/headers"
+import { decodeToken, isTokenExpired, type UserData } from "@/lib/auth/token"
 import { AdminDashboard } from "@/components/admin-dashboard"
 
 export default async function AdminPage() {
-  const supabase = await createClient()
+  const cookieStore = await cookies()
+  const token = cookieStore.get("auth_token")?.value
 
-  const { data, error } = await supabase.auth.getUser()
-  if (error || !data?.user) {
-    redirect("/auth/login")
+  if (!token || isTokenExpired(token)) {
+    redirect("/")
   }
 
-  // Check if user is admin
-  const { data: profile } = await supabase.from("profiles").select("role, full_name").eq("id", data.user.id).single()
+  // Get user data from cookie (preferred) or decode token
+  let userData: UserData | null = null
+  const userDataCookie = cookieStore.get("user_data")?.value
+  if (userDataCookie) {
+    try {
+      userData = JSON.parse(decodeURIComponent(userDataCookie)) as UserData
+    } catch {
+      // Fallback to token decoding
+    }
+  }
 
-  if (profile?.role !== "admin") {
+  // If no user data in cookie, try to decode token
+  if (!userData) {
+    const decoded = decodeToken(token)
+    if (!decoded) {
+      redirect("/")
+    }
+    // Token doesn't have role, so we can't verify admin status
+    // Redirect to dashboard - user should login again to get user data saved
     redirect("/dashboard")
   }
 
-  return <AdminDashboard adminName={profile.full_name || "Admin"} userId={data.user.id} />
+  // Check if user is admin - check for "ADMIN" (uppercase)
+  const userRole = userData.role?.toUpperCase()
+  if (userRole !== "ADMIN") {
+    redirect("/dashboard")
+  }
+
+  const adminName = userData.name || "Admin"
+  const userId = userData.id || ""
+
+  return <AdminDashboard adminName={adminName} userId={userId} />
 }

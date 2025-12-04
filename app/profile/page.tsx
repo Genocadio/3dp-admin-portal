@@ -2,23 +2,31 @@
 
 import { useState, useEffect } from "react"
 import Image from "next/image"
+import { useQuery, useMutation } from "@apollo/client/react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ArrowLeft, Loader2, Lock } from "lucide-react"
-import { createClient } from "@/lib/supabase/client"
+import { Loader2, Lock } from "lucide-react"
+import { ME_QUERY } from "@/lib/graphql/users"
+import { CHANGE_PASSWORD_MUTATION, UPDATE_PROFILE_MUTATION } from "@/lib/graphql/mutations"
+import type { User } from "@/lib/graphql/types"
 import type { Profile } from "@/lib/types"
 import { useRouter } from "next/navigation"
 import { ProfileAvatarMenu } from "@/components/profile-avatar-menu"
 
 export default function ProfilePage() {
   const router = useRouter()
-  const supabase = createClient()
-  const [profile, setProfile] = useState<Profile | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const { data, loading, error: queryError, refetch } = useQuery<{ me: User }>(ME_QUERY, {
+    fetchPolicy: "network-only",
+  })
+  const [changePassword, { loading: changingPassword }] = useMutation(CHANGE_PASSWORD_MUTATION)
+  const [updateProfile, { loading: updatingProfile }] = useMutation(UPDATE_PROFILE_MUTATION, {
+    refetchQueries: [{ query: ME_QUERY }],
+  })
+
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -37,42 +45,43 @@ export default function ProfilePage() {
   const [passwordError, setPasswordError] = useState<string | null>(null)
   const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null)
 
+  // Map GraphQL User to Profile type and update form fields
   useEffect(() => {
-    loadProfile()
-  }, [])
+    if (data?.me) {
+      const user = data.me
+      const userRoleUpper = user.role?.toUpperCase()
+      const roleInOrg = user.roleInOrganization || "manager"
+      const validUserRole: "manager" | "ceo" | "accountant" | "other" = 
+        roleInOrg === "ceo" || roleInOrg === "accountant" || roleInOrg === "other" 
+          ? roleInOrg as "manager" | "ceo" | "accountant" | "other"
+          : "manager"
 
-  const loadProfile = async () => {
-    try {
-      setIsLoading(true)
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-
-      if (!user) {
-        router.push("/")
-        return
-      }
-
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", user.id)
-        .single()
-
-      if (error) throw error
-
-      setProfile(data)
-      setFullName(data.full_name || "")
-      setOrganisationName(data.organisation_name || "")
-      setUserRole(data.user_role || "manager")
-      setPhoneNumber(data.phone_number || "")
-    } catch (error) {
-      console.error("Error loading profile:", error)
-      setError("Failed to load profile")
-    } finally {
-      setIsLoading(false)
+      setFullName(user.name || "")
+      setOrganisationName(user.organizationName || "")
+      setUserRole(validUserRole)
+      setPhoneNumber(user.phone || "")
     }
+  }, [data])
+
+  const loadProfile = () => {
+    refetch()
   }
+
+  // Map User to Profile for compatibility
+  const profile: Profile | null = data?.me ? {
+    id: data.me.id,
+    email: data.me.email,
+    full_name: data.me.name || null,
+    role: data.me.role?.toUpperCase() === "ADMIN" ? "admin" : "user",
+    organisation_name: data.me.organizationName || null,
+    user_role: (data.me.roleInOrganization || "manager") as "manager" | "ceo" | "accountant" | "other",
+    phone_number: data.me.phone || null,
+    is_active: data.me.isActive,
+    created_at: data.me.createdAt || new Date().toISOString(),
+    updated_at: data.me.updatedAt || new Date().toISOString(),
+  } : null
+
+  const isLoading = loading
 
   const handleSaveProfile = async () => {
     try {
@@ -80,37 +89,40 @@ export default function ProfilePage() {
       setError(null)
       setSuccess(null)
 
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-
-      if (!user) throw new Error("Not authenticated")
-
-      // Build update object based on user role
-      const updateData: any = {
-        full_name: fullName,
-        phone_number: phoneNumber || null,
-        updated_at: new Date().toISOString(),
+      if (!profile) {
+        throw new Error("Profile not loaded")
       }
 
-      // Only update organization and role for non-admin users
-      if (profile?.role !== "admin") {
-        updateData.organisation_name = organisationName
-        updateData.user_role = userRole
+      const isAdmin = profile.role === "admin" || profile.role?.toUpperCase() === "ADMIN"
+
+      // Build update input - only include fields that can be updated
+      const updateInput: {
+        name?: string | null
+        organizationName?: string | null
+        phone?: string | null
+        roleInOrganization?: string | null
+      } = {
+        name: fullName || null,
+        phone: phoneNumber || null,
       }
 
-      const { error } = await supabase
-        .from("profiles")
-        .update(updateData)
-        .eq("id", user.id)
+      // Only update organization fields if user is not admin
+      if (!isAdmin) {
+        updateInput.organizationName = organisationName || null
+        updateInput.roleInOrganization = userRole || null
+      }
 
-      if (error) throw error
+      await updateProfile({
+        variables: { input: updateInput },
+      })
 
-      setSuccess("Profile updated successfully")
-      loadProfile()
-    } catch (error) {
+      setSuccess("Profile updated successfully!")
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccess(null), 3000)
+    } catch (error: any) {
       console.error("Error saving profile:", error)
-      setError(error instanceof Error ? error.message : "Failed to save profile")
+      setError(error?.message || "Failed to save profile")
     } finally {
       setIsSaving(false)
     }
@@ -145,19 +157,14 @@ export default function ProfilePage() {
     setIsChangingPassword(true)
 
     try {
-      const response = await fetch("/api/auth/password/change", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          currentPassword,
-          newPassword,
-        }),
+      await changePassword({
+        variables: {
+          input: {
+            currentPassword,
+            newPassword,
+          },
+        },
       })
-
-      if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.error || "Failed to change password")
-      }
 
       setPasswordSuccess("Password changed successfully!")
       setCurrentPassword("")
@@ -166,8 +173,8 @@ export default function ProfilePage() {
 
       // Clear success message after 3 seconds
       setTimeout(() => setPasswordSuccess(null), 3000)
-    } catch (error) {
-      setPasswordError(error instanceof Error ? error.message : "Failed to change password")
+    } catch (error: any) {
+      setPasswordError(error?.message || "Failed to change password")
     } finally {
       setIsChangingPassword(false)
     }
@@ -177,6 +184,17 @@ export default function ProfilePage() {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Loader2 className="w-8 h-8 animate-spin" />
+      </div>
+    )
+  }
+
+  if (queryError) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <p className="text-destructive mb-4">Error loading profile: {queryError.message}</p>
+          <Button onClick={() => refetch()}>Try Again</Button>
+        </div>
       </div>
     )
   }
@@ -196,24 +214,20 @@ export default function ProfilePage() {
     .toUpperCase()
     .slice(0, 2)
 
-  const isAdmin = profile.role === "admin"
+  const isAdmin = profile.role === "admin" || profile.role?.toUpperCase() === "ADMIN"
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-gradient-to-br from-background via-background to-secondary/20">
       <div className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <Button variant="ghost" onClick={() => router.back()} className="mb-2">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back
-          </Button>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Image src="/loggo.webp" alt="3DP Logo" width={50} height={50} className="h-12 w-auto" />
-              <div>
-                <h1 className="text-2xl font-bold">Profile Settings</h1>
-                <p className="text-sm text-muted-foreground">Manage your account information</p>
-              </div>
+        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Image src="/loggo.webp" alt="3DP Logo" width={50} height={50} className="h-12 w-auto" />
+            <div>
+              <h1 className="text-2xl font-bold">Profile Settings</h1>
+              <p className="text-sm text-muted-foreground">Manage your account information</p>
             </div>
+          </div>
+          <div className="flex items-center gap-3">
             <ProfileAvatarMenu />
           </div>
         </div>
@@ -341,8 +355,8 @@ export default function ProfilePage() {
                     {success && <p className="text-sm text-green-600">{success}</p>}
 
                     <div className="flex gap-4 pt-4">
-                      <Button type="submit" disabled={isSaving}>
-                        {isSaving ? (
+                      <Button type="submit" disabled={isSaving || updatingProfile}>
+                        {isSaving || updatingProfile ? (
                           <>
                             <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                             Saving...
@@ -415,8 +429,8 @@ export default function ProfilePage() {
                       <p className="text-sm text-green-600">{passwordSuccess}</p>
                     )}
 
-                    <Button type="submit" disabled={isChangingPassword} className="w-full">
-                      {isChangingPassword ? (
+                    <Button type="submit" disabled={isChangingPassword || changingPassword} className="w-full">
+                      {isChangingPassword || changingPassword ? (
                         <>
                           <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                           Changing Password...

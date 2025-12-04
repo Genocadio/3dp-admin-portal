@@ -1,6 +1,11 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useQuery, useMutation } from "@apollo/client/react"
+import { USERS_QUERY, ACTIVATE_USER_MUTATION, DEACTIVATE_USER_MUTATION, DELETE_USER_MUTATION } from "@/lib/graphql/users"
+import { REGISTER_MUTATION } from "@/lib/graphql/mutations"
+import { getToken, decodeToken } from "@/lib/auth/token"
+import type { User } from "@/lib/graphql/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -16,179 +21,228 @@ import {
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Plus, Trash2, AlertCircle, Loader2, Users, UserPlus } from "lucide-react"
-import { createClient } from "@/lib/supabase/client"
-import type { Profile, AdminUser } from "@/lib/types"
+import { Plus, Trash2, AlertCircle, Loader2, Users, UserPlus, CheckCircle2, XCircle } from "lucide-react"
 import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
+  AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 
-export function UserManagement() {
-  const supabase = createClient()
-  const [companyUsers, setCompanyUsers] = useState<Profile[]>([])
-  const [adminUsers, setAdminUsers] = useState<AdminUser[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [isCreating, setIsCreating] = useState(false)
-  const [isDeletingUser, setIsDeletingUser] = useState<string | null>(null)
+type UserManagementProps = {
+  currentUserId?: string
+}
+
+const USER_MANAGEMENT_TAB_STORAGE_KEY = "user-management-selected-tab"
+
+export function UserManagement({ currentUserId }: UserManagementProps) {
+  const { data, loading, error: queryError, refetch } = useQuery<{ users: User[] }>(USERS_QUERY)
+  const [activateUser, { loading: activating }] = useMutation(ACTIVATE_USER_MUTATION, {
+    refetchQueries: [{ query: USERS_QUERY }],
+  })
+  const [deactivateUser, { loading: deactivating }] = useMutation(DEACTIVATE_USER_MUTATION, {
+    refetchQueries: [{ query: USERS_QUERY }],
+  })
+  const [deleteUser, { loading: deleting }] = useMutation(DELETE_USER_MUTATION, {
+    refetchQueries: [{ query: USERS_QUERY }],
+  })
+  const [registerMutation, { loading: isCreating }] = useMutation(REGISTER_MUTATION, {
+    refetchQueries: [{ query: USERS_QUERY }],
+  })
+
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<string>("company")
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [userToDelete, setUserToDelete] = useState<{ id: string; name: string; email: string } | null>(null)
 
   // Form states
   const [newAdminName, setNewAdminName] = useState("")
   const [newAdminEmail, setNewAdminEmail] = useState("")
+  const [newAdminPassword, setNewAdminPassword] = useState("")
+  const [newAdminPhone, setNewAdminPhone] = useState("")
   const [showCreateDialog, setShowCreateDialog] = useState(false)
-  const [userToDelete, setUserToDelete] = useState<{ id: string; name: string; type: "company" | "admin" } | null>(null)
+  const [userToDeactivate, setUserToDeactivate] = useState<{ id: string; name: string; isActive: boolean } | null>(null)
 
+  // Load persisted tab from localStorage on mount
   useEffect(() => {
-    loadUsers()
+    const savedTab = localStorage.getItem(USER_MANAGEMENT_TAB_STORAGE_KEY)
+    if (savedTab === "company" || savedTab === "admins") {
+      setActiveTab(savedTab)
+    }
   }, [])
 
-  const loadUsers = async () => {
-    try {
-      setIsLoading(true)
-      setError(null)
-
-      // Load company users (role = 'user')
-      const { data: companyData, error: companyError } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("role", "user")
-        .eq("is_active", true)
-        .order("created_at", { ascending: false })
-
-      if (companyError) throw companyError
-
-      setCompanyUsers(companyData || [])
-
-      // Load admin users
-      const { data: adminData, error: adminError } = await supabase
-        .from("admin_users")
-        .select("*")
-        .order("created_at", { ascending: false })
-
-      if (adminError) throw adminError
-
-      setAdminUsers(adminData || [])
-    } catch (err) {
-      console.error("Error loading users:", err)
-      setError("Failed to load users")
-    } finally {
-      setIsLoading(false)
-    }
+  // Save tab to localStorage when it changes
+  const handleTabChange = (value: string) => {
+    setActiveTab(value)
+    localStorage.setItem(USER_MANAGEMENT_TAB_STORAGE_KEY, value)
   }
 
+  // Get current user ID from token if not provided
+  useEffect(() => {
+    if (!currentUserId) {
+      const token = getToken()
+      if (token) {
+        const decoded = decodeToken(token)
+        if (decoded?.id) {
+          // Store in a way we can use it
+        }
+      }
+    }
+  }, [currentUserId])
+
+  // Get current user ID
+  const getCurrentUserId = (): string | null => {
+    if (currentUserId) return currentUserId
+    const token = getToken()
+    if (token) {
+      const decoded = decodeToken(token)
+      return decoded?.id || decoded?.userId || null
+    }
+    return null
+  }
+
+  // Filter users by role
+  const allUsers = data?.users || []
+  const companyUsers = allUsers.filter((user) => {
+    const role = String(user.role || "").toUpperCase()
+    return role === "USER"
+  })
+  const adminUsers = allUsers.filter((user) => {
+    const role = String(user.role || "").toUpperCase()
+    return role === "ADMIN"
+  })
+
+  const isLoading = loading
+
   const handleCreateAdmin = async () => {
-    if (!newAdminName.trim() || !newAdminEmail.trim()) {
-      setError("Name and email are required")
+    if (!newAdminName.trim() || !newAdminEmail.trim() || !newAdminPassword.trim()) {
+      setError("Name, email, and password are required")
       return
     }
 
     try {
-      setIsCreating(true)
       setError(null)
+      setSuccess(null)
 
-      // Generate temporary password
-      const tempPasswordResponse = await fetch("/api/auth/password/generate-temp", {
-        method: "POST",
-      })
-
-      if (!tempPasswordResponse.ok) {
-        throw new Error("Failed to generate temporary password")
-      }
-
-      const { tempPassword } = await tempPasswordResponse.json()
-
-      // Create record in admin_users table
-      const { error: createError } = await supabase.from("admin_users").insert({
-        email: newAdminEmail,
-        full_name: newAdminName,
-      })
-
-      if (createError) throw createError
-
-      // Send credentials email
-      const emailResponse = await fetch("/api/auth/password/send-admin-credentials", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+      // Create admin user using REGISTER_MUTATION
+      // Omit organizationName and roleInOrganization (set to null)
+      // Set role to "ADMIN" explicitly
+      await registerMutation({
+        variables: {
+          input: {
+            email: newAdminEmail.trim(),
+            name: newAdminName.trim(),
+            password: newAdminPassword,
+            organizationName: null,
+            role: "ADMIN",
+            roleInOrganization: null,
+            phone: newAdminPhone.trim() || null,
+          },
         },
-        body: JSON.stringify({
-          email: newAdminEmail,
-          fullName: newAdminName,
-          temporaryPassword: tempPassword,
-        }),
       })
 
-      if (!emailResponse.ok) {
-        console.error("Failed to send credentials email")
-        // Still show success since admin was created
-      }
-
-      setSuccess(`Admin user created! Temporary password sent to ${newAdminEmail}`)
+      setSuccess(`Admin user created successfully!`)
       setNewAdminName("")
       setNewAdminEmail("")
+      setNewAdminPassword("")
+      setNewAdminPhone("")
       setShowCreateDialog(false)
-      loadUsers()
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error creating admin:", err)
-      setError(err instanceof Error ? err.message : "Failed to create admin user")
-    } finally {
-      setIsCreating(false)
+      setError(err?.message || "Failed to create admin user")
     }
   }
 
-  const handleDeleteCompanyUser = async (userId: string) => {
+  const handleActivateUser = async (userId: string) => {
     try {
-      setIsDeletingUser(userId)
       setError(null)
+      setSuccess(null)
 
-      // Soft delete by marking as inactive
-      const { error: updateError } = await supabase
-        .from("profiles")
-        .update({ is_active: false, updated_at: new Date().toISOString() })
-        .eq("id", userId)
+      await activateUser({
+        variables: { userId },
+      })
 
-      if (updateError) throw updateError
+      setSuccess("User activated successfully")
+      setUserToDeactivate(null)
+    } catch (err: any) {
+      console.error("Error activating user:", err)
+      setError(err?.message || "Failed to activate user")
+    }
+  }
+
+  const handleDeactivateUser = async (userId: string) => {
+    // Prevent self-deactivation
+    const currentUserId = getCurrentUserId()
+    if (currentUserId && userId === currentUserId) {
+      setError("You cannot deactivate your own account")
+      setUserToDeactivate(null)
+      return
+    }
+
+    try {
+      setError(null)
+      setSuccess(null)
+
+      await deactivateUser({
+        variables: { userId },
+      })
 
       setSuccess("User deactivated successfully")
-      setUserToDelete(null)
-      loadUsers()
-    } catch (err) {
-      console.error("Error deleting user:", err)
-      setError(err instanceof Error ? err.message : "Failed to delete user")
-    } finally {
-      setIsDeletingUser(null)
+      setUserToDeactivate(null)
+    } catch (err: any) {
+      console.error("Error deactivating user:", err)
+      setError(err?.message || "Failed to deactivate user")
     }
   }
 
-  const handleDeleteAdminUser = async (adminId: string) => {
+  const handleDeleteClick = (user: User) => {
+    const currentUserId = getCurrentUserId()
+    if (currentUserId && user.id === currentUserId) {
+      setError("You cannot delete your own account")
+      return
+    }
+    setUserToDelete({ id: user.id, name: user.name || "User", email: user.email })
+    setDeleteDialogOpen(true)
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (!userToDelete) return
+
     try {
-      setIsDeletingUser(adminId)
       setError(null)
-
-      const { error: deleteError } = await supabase
-        .from("admin_users")
-        .delete()
-        .eq("id", adminId)
-
-      if (deleteError) throw deleteError
-
-      setSuccess("Admin user deleted successfully")
+      setSuccess(null)
+      await deleteUser({
+        variables: { userId: userToDelete.id },
+      })
+      setSuccess(`User ${userToDelete.name} has been deleted`)
+      setDeleteDialogOpen(false)
       setUserToDelete(null)
-      loadUsers()
-    } catch (err) {
-      console.error("Error deleting admin:", err)
-      setError(err instanceof Error ? err.message : "Failed to delete admin user")
-    } finally {
-      setIsDeletingUser(null)
+    } catch (err: any) {
+      console.error("Error deleting user:", err)
+      setError(err?.message || "Failed to delete user")
+      setDeleteDialogOpen(false)
     }
   }
+
+  // Clear success/error messages after 5 seconds
+  useEffect(() => {
+    if (success) {
+      const timer = setTimeout(() => setSuccess(null), 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [success])
+
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [error])
 
   if (isLoading) {
     return (
@@ -198,11 +252,24 @@ export function UserManagement() {
     )
   }
 
+  if (queryError) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center">
+          <AlertCircle className="w-12 h-12 text-destructive mx-auto mb-4" />
+          <p className="text-destructive mb-4">Error loading users: {queryError.message}</p>
+          <Button onClick={() => refetch()}>Try Again</Button>
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
     <div className="space-y-6">
-      <Tabs defaultValue="company" className="w-full">
-        <TabsList>
-          <TabsTrigger value="company" className="flex items-center gap-2">
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
+        <div className="flex justify-center mb-6">
+          <TabsList>
+            <TabsTrigger value="company" className="flex items-center gap-2">
             <Users className="w-4 h-4" />
             Company Users ({companyUsers.length})
           </TabsTrigger>
@@ -211,6 +278,7 @@ export function UserManagement() {
             Admin Users ({adminUsers.length})
           </TabsTrigger>
         </TabsList>
+        </div>
 
         {/* Company Users Tab */}
         <TabsContent value="company" className="space-y-4">
@@ -242,40 +310,85 @@ export function UserManagement() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Email</TableHead>
-                        <TableHead>Organisation</TableHead>
-                        <TableHead>Role</TableHead>
-                        <TableHead>Joined</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
+                        <TableHead className="w-[200px]">Name</TableHead>
+                        <TableHead className="w-[250px]">Email</TableHead>
+                        <TableHead className="w-[200px]">Organisation</TableHead>
+                        <TableHead className="w-[200px]">Role in Organisation</TableHead>
+                        <TableHead className="w-[150px]">Status</TableHead>
+                        <TableHead className="w-[150px]">Joined</TableHead>
+                        <TableHead className="w-[100px] text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {companyUsers.map((user) => (
-                        <TableRow key={user.id}>
-                          <TableCell className="font-medium">{user.full_name || "N/A"}</TableCell>
-                          <TableCell>{user.email}</TableCell>
-                          <TableCell>{user.organisation_name || "N/A"}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className="capitalize">
-                              {user.user_role}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>{new Date(user.created_at).toLocaleDateString()}</TableCell>
-                          <TableCell className="text-right">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() =>
-                                setUserToDelete({ id: user.id, name: user.full_name || user.email, type: "company" })
-                              }
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {companyUsers.map((user) => {
+                        const currentUserId = getCurrentUserId()
+                        const isCurrentUser = currentUserId === user.id
+                        return (
+                          <TableRow key={user.id}>
+                            <TableCell className="font-medium">{user.name || "N/A"}</TableCell>
+                            <TableCell>{user.email}</TableCell>
+                            <TableCell>{user.organizationName || "N/A"}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="capitalize">
+                                {user.roleInOrganization || "N/A"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              {user.isActive ? (
+                                <Badge variant="outline" className="text-green-600 border-green-600">
+                                  <CheckCircle2 className="w-3 h-3 mr-1" />
+                                  Active
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-red-600 border-red-600">
+                                  <XCircle className="w-3 h-3 mr-1" />
+                                  Inactive
+                                </Badge>
+                              )}
+                            </TableCell>
+                            <TableCell>{user.createdAt ? new Date(user.createdAt).toLocaleDateString() : "N/A"}</TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                {user.isActive ? (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() =>
+                                      setUserToDeactivate({ id: user.id, name: user.name || user.email, isActive: true })
+                                    }
+                                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                    disabled={isCurrentUser || deactivating}
+                                    title={isCurrentUser ? "You cannot deactivate your own account" : "Deactivate user"}
+                                  >
+                                    <XCircle className="w-4 h-4" />
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleActivateUser(user.id)}
+                                    className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                                    disabled={activating}
+                                    title="Activate user"
+                                  >
+                                    <CheckCircle2 className="w-4 h-4" />
+                                  </Button>
+                                )}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleDeleteClick(user)}
+                                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                                  disabled={isCurrentUser || deleting}
+                                  title={isCurrentUser ? "You cannot delete your own account" : "Delete user"}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
                     </TableBody>
                   </Table>
                 </div>
@@ -327,6 +440,26 @@ export function UserManagement() {
                         onChange={(e) => setNewAdminEmail(e.target.value)}
                       />
                     </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="admin-password">Password</Label>
+                      <Input
+                        id="admin-password"
+                        type="password"
+                        placeholder="Enter password"
+                        value={newAdminPassword}
+                        onChange={(e) => setNewAdminPassword(e.target.value)}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="admin-phone">Phone (Optional)</Label>
+                      <Input
+                        id="admin-phone"
+                        type="tel"
+                        placeholder="+1234567890"
+                        value={newAdminPhone}
+                        onChange={(e) => setNewAdminPhone(e.target.value)}
+                      />
+                    </div>
                     {error && <p className="text-sm text-red-600">{error}</p>}
                   </div>
                   <div className="flex gap-3 justify-end">
@@ -364,33 +497,79 @@ export function UserManagement() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Email</TableHead>
-                        <TableHead>Created</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
+                        <TableHead className="w-[200px]">Name</TableHead>
+                        <TableHead className="w-[250px]">Email</TableHead>
+                        <TableHead className="w-[150px]">Phone</TableHead>
+                        <TableHead className="w-[150px]">Status</TableHead>
+                        <TableHead className="w-[150px]">Created</TableHead>
+                        <TableHead className="w-[100px] text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {adminUsers.map((admin) => (
-                        <TableRow key={admin.id}>
-                          <TableCell className="font-medium">{admin.full_name}</TableCell>
-                          <TableCell>{admin.email}</TableCell>
-                          <TableCell>{new Date(admin.created_at).toLocaleDateString()}</TableCell>
-                          <TableCell className="text-right">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() =>
-                                setUserToDelete({ id: admin.id, name: admin.full_name, type: "admin" })
-                              }
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                              disabled={isDeletingUser === admin.id}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {adminUsers.map((admin) => {
+                        const currentUserId = getCurrentUserId()
+                        const isCurrentUser = currentUserId === admin.id
+                        return (
+                          <TableRow key={admin.id}>
+                            <TableCell className="font-medium">{admin.name}</TableCell>
+                            <TableCell>{admin.email}</TableCell>
+                            <TableCell>{admin.phone || "N/A"}</TableCell>
+                            <TableCell>
+                              {admin.isActive ? (
+                                <Badge variant="outline" className="text-green-600 border-green-600">
+                                  <CheckCircle2 className="w-3 h-3 mr-1" />
+                                  Active
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-red-600 border-red-600">
+                                  <XCircle className="w-3 h-3 mr-1" />
+                                  Inactive
+                                </Badge>
+                              )}
+                            </TableCell>
+                            <TableCell>{admin.createdAt ? new Date(admin.createdAt).toLocaleDateString() : "N/A"}</TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                {admin.isActive ? (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() =>
+                                      setUserToDeactivate({ id: admin.id, name: admin.name || admin.email, isActive: true })
+                                    }
+                                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                    disabled={isCurrentUser || deactivating}
+                                    title={isCurrentUser ? "You cannot deactivate your own account" : "Deactivate user"}
+                                  >
+                                    <XCircle className="w-4 h-4" />
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleActivateUser(admin.id)}
+                                    className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                                    disabled={activating}
+                                    title="Activate user"
+                                  >
+                                    <CheckCircle2 className="w-4 h-4" />
+                                  </Button>
+                                )}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleDeleteClick(admin)}
+                                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                                  disabled={isCurrentUser || deleting}
+                                  title={isCurrentUser ? "You cannot delete your own account" : "Delete user"}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
                     </TableBody>
                   </Table>
                 </div>
@@ -400,35 +579,77 @@ export function UserManagement() {
         </TabsContent>
       </Tabs>
 
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={!!userToDelete} onOpenChange={() => setUserToDelete(null)}>
+      {/* Delete User Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete User</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete{" "}
-              <span className="font-semibold">{userToDelete?.name}</span>
-              {userToDelete?.type === "company"
-                ? "? This will deactivate their account and they won't be able to login."
-                : "? This action cannot be undone."}
+              Are you sure you want to delete user <span className="font-semibold">{userToDelete?.name}</span> ({userToDelete?.email})? 
+              This action cannot be undone and will permanently remove the user account and all associated data.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteConfirm}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Deactivate Confirmation Dialog */}
+      <AlertDialog open={!!userToDeactivate} onOpenChange={() => setUserToDeactivate(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{userToDeactivate?.isActive ? "Deactivate User" : "Activate User"}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {userToDeactivate?.isActive ? (
+                <>
+                  Are you sure you want to deactivate{" "}
+                  <span className="font-semibold">{userToDeactivate?.name}</span>
+                  ? This will prevent them from logging in. You can reactivate them later.
+                </>
+              ) : (
+                <>
+                  Are you sure you want to activate{" "}
+                  <span className="font-semibold">{userToDeactivate?.name}</span>
+                  ? This will allow them to log in again.
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="flex gap-3 justify-end">
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
-                if (userToDelete) {
-                  if (userToDelete.type === "company") {
-                    handleDeleteCompanyUser(userToDelete.id)
+                if (userToDeactivate) {
+                  if (userToDeactivate.isActive) {
+                    handleDeactivateUser(userToDeactivate.id)
                   } else {
-                    handleDeleteAdminUser(userToDelete.id)
+                    handleActivateUser(userToDeactivate.id)
                   }
                 }
               }}
-              className="bg-red-600 hover:bg-red-700"
-              disabled={isDeletingUser !== null}
+              className={userToDeactivate?.isActive ? "bg-red-600 hover:bg-red-700" : "bg-green-600 hover:bg-green-700"}
+              disabled={deactivating || activating}
             >
-              {isDeletingUser ? "Deleting..." : "Delete"}
+              {deactivating || activating
+                ? "Processing..."
+                : userToDeactivate?.isActive
+                  ? "Deactivate"
+                  : "Activate"}
             </AlertDialogAction>
           </div>
         </AlertDialogContent>
@@ -436,3 +657,4 @@ export function UserManagement() {
     </div>
   )
 }
+

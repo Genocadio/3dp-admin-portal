@@ -17,7 +17,6 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Plus, FolderTree, Trash2 } from "lucide-react"
-import { createClient } from "@/lib/supabase/client"
 import type { Category, Question, QuestionOption } from "@/lib/types"
 
 type CategoryQuestionManagerProps = {
@@ -26,7 +25,6 @@ type CategoryQuestionManagerProps = {
 }
 
 export function CategoryQuestionManager({ applicationId, applicationTitle }: CategoryQuestionManagerProps) {
-  const supabase = createClient()
   const [categories, setCategories] = useState<Category[]>([])
   const [questions, setQuestions] = useState<Question[]>([])
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
@@ -55,53 +53,72 @@ export function CategoryQuestionManager({ applicationId, applicationTitle }: Cat
   }, [selectedCategory])
 
   const loadCategories = async () => {
-    const { data } = await supabase
-      .from("categories")
-      .select("*")
-      .eq("application_id", applicationId)
-      .order("order_index", { ascending: true })
-
-    if (data) {
-      setCategories(data)
-      if (data.length > 0 && !selectedCategory) {
-        setSelectedCategory(data[0].id)
-      }
+    // Using dummy data instead of Supabase
+    const dummyCategories: Category[] = [
+      {
+        id: "1",
+        application_id: applicationId,
+        title: "Sample Category 1",
+        description: "This is a sample category",
+        order_index: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ]
+    setCategories(dummyCategories)
+    if (dummyCategories.length > 0 && !selectedCategory) {
+      setSelectedCategory(dummyCategories[0].id)
     }
   }
 
   const loadQuestions = async (categoryId: string) => {
-    const { data } = await supabase
-      .from("questions")
-      .select("*")
-      .eq("category_id", categoryId)
-      .order("order_index", { ascending: true })
-
-    if (data) {
-      setQuestions(data)
-    }
+    // Using dummy data instead of Supabase
+    const dummyQuestions: Question[] = [
+      {
+        id: "1",
+        category_id: categoryId,
+        question_text: "Sample question 1",
+        help_text: "This is a sample question",
+        question_type: "multiple_choice",
+        options: [{ text: "Option A", value: "a", points: 10 }],
+        points: 10,
+        media_upload_config: { required: false, allowedTypes: [], maxSize: 0 },
+        depends_on_question_id: null,
+        depends_on_answer: null,
+        order_index: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ]
+    setQuestions(dummyQuestions)
   }
 
   const handleCreateCategory = async () => {
     if (!newCategory.title) return
 
-    const { error } = await supabase.from("categories").insert({
+    // Using dummy data instead of Supabase
+    const newCat: Category = {
+      id: Date.now().toString(),
       application_id: applicationId,
       title: newCategory.title,
       description: newCategory.description,
       order_index: categories.length,
-    })
-
-    if (!error) {
-      setNewCategory({ title: "", description: "" })
-      setIsCategoryDialogOpen(false)
-      loadCategories()
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     }
+
+    setCategories([...categories, newCat])
+    setNewCategory({ title: "", description: "" })
+    setIsCategoryDialogOpen(false)
+    console.log("Category created (dummy data - GraphQL mutation needed):", newCat)
   }
 
   const handleCreateQuestion = async () => {
     if (!newQuestion.question_text || !selectedCategory) return
 
-    const { error } = await supabase.from("questions").insert({
+    // Using dummy data instead of Supabase
+    const newQ: Question = {
+      id: Date.now().toString(),
       category_id: selectedCategory,
       question_text: newQuestion.question_text,
       help_text: newQuestion.help_text,
@@ -116,45 +133,42 @@ export function CategoryQuestionManager({ applicationId, applicationTitle }: Cat
       depends_on_question_id: newQuestion.depends_on_question_id,
       depends_on_answer: newQuestion.depends_on_answer || null,
       order_index: questions.length,
-    })
-
-    if (!error) {
-      setNewQuestion({
-        question_text: "",
-        help_text: "",
-        question_type: "multiple_choice",
-        points: 10,
-        options: [{ text: "Yes", value: "yes", points: 10, showUpload: false }],
-        media_required: false,
-        depends_on_question_id: null,
-        depends_on_answer: "",
-      })
-      setIsQuestionDialogOpen(false)
-      loadQuestions(selectedCategory)
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     }
+
+    setQuestions([...questions, newQ])
+    setNewQuestion({
+      question_text: "",
+      help_text: "",
+      question_type: "multiple_choice",
+      points: 10,
+      options: [{ text: "Yes", value: "yes", points: 10, showUpload: false }],
+      media_required: false,
+      depends_on_question_id: null,
+      depends_on_answer: "",
+    })
+    setIsQuestionDialogOpen(false)
+    console.log("Question created (dummy data - GraphQL mutation needed):", newQ)
   }
 
   const handleDeleteCategory = async (id: string) => {
     if (!confirm("Delete this category and all its questions?")) return
 
-    const { error } = await supabase.from("categories").delete().eq("id", id)
-
-    if (!error) {
-      loadCategories()
-      if (selectedCategory === id) {
-        setSelectedCategory(null)
-      }
+    // Using dummy data instead of Supabase
+    setCategories(categories.filter((cat) => cat.id !== id))
+    if (selectedCategory === id) {
+      setSelectedCategory(null)
     }
+    console.log("Category deleted (dummy data - GraphQL mutation needed):", id)
   }
 
   const handleDeleteQuestion = async (id: string) => {
     if (!confirm("Delete this question?")) return
 
-    const { error } = await supabase.from("questions").delete().eq("id", id)
-
-    if (!error && selectedCategory) {
-      loadQuestions(selectedCategory)
-    }
+    // Using dummy data instead of Supabase
+    setQuestions(questions.filter((q) => q.id !== id))
+    console.log("Question deleted (dummy data - GraphQL mutation needed):", id)
   }
 
   const addOption = () => {
