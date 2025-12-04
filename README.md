@@ -217,9 +217,7 @@ Authentication is handled via JWT tokens stored in localStorage. The token is au
 - Safari (latest)
 - Edge (latest)
 
-## License
 
-[Add your license here]
 
 ## Support
 
